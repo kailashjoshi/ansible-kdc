@@ -1,0 +1,13 @@
+---
+krb5_kdc_admin_user: "admin/admin@{{ hostvars[groups['krb5_server'][0]]['default_realm'] }}"
+krb5_kdc_admin_passwd: admin
+krb5_kdc_master_passwd: admin
+default_realm: EMC.COM
+
+
+krb5_kdc_master_princ: "host/{{ hostvars[groups['krb5_server_master'][0]]['inventory_hostname'] }}@{{ hostvars[groups['krb5_server'][0]]['default_realm'] }}"
+krb5_kdc_master_princ_passwd: master
+
+krb5_kdc_slave_princ: "host/{{ hostvars[groups['krb5_server_slave'][0]] ['inventory_hostname']}}@{{ hostvars[groups['krb5_server'][0]]['default_realm'] }}"
+krb5_kdc_slave_princ_passwd: master
+

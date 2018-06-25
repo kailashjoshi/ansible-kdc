@@ -1,0 +1,126 @@
+---
+- name: Install selinux
+  yum: name=libselinux-python state=present update_cache=yes 
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['all_nodes'] }}"
+
+- name: Install KRB5 workstation
+  yum: name=krb5-workstation state=present update_cache=yes 
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['all_nodes'] }}"
+
+- name: disable firewall
+  service:
+    name: firewalld
+    enabled: no
+    state: stopped
+
+- name: Set krb5.conf
+  template: src=krb5.conf.j2 dest=/etc/krb5.conf backup=yes
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['all_nodes'] }}"
+
+- name: Install KRB5 server
+  yum: name={{ item }} state=present update_cache=yes
+  with_items:
+    - rng-tools
+    - krb5-libs
+    - krb5-server
+    - xinetd
+    - rsync
+
+- name: Init entropy
+  command: "rngd -r /dev/urandom"
+  changed_when: false
+  
+
+- name: start entropy
+  service: name=rngd state=started enabled=yes
+
+- name: Set kdc.conf
+  template: src=kdc.conf.j2 dest=/var/kerberos/krb5kdc/kdc.conf backup=yes
+  notify:
+    - restart kdc
+
+- stat:
+    path: /var/kerberos/krb5kdc/principal
+  register: db
+  changed_when: false
+
+- name: Create KDC database
+  command: /usr/sbin/kdb5_util create -s -P {{ krb5_kdc_master_passwd }} creates=/var/kerberos/krb5kdc/principal
+  when: db.stat.islnk is not defined
+  notify:
+    - restart kdc
+
+- name: Set kadm5.acl
+  template: src=kadm5.acl.j2 dest=/var/kerberos/krb5kdc/kadm5.acl backup=yes
+  notify:
+    - restart kdc
+
+- name: Check admin user exist
+  shell: "kadmin.local -q 'list_principals' | grep -w '{{ krb5_kdc_admin_user }}'"
+  ignore_errors: True
+  register: kdc_admin_user
+  changed_when: false
+
+
+- name: Create Cloudera Manager admin princ
+  command: /usr/sbin/kadmin.local -q "addprinc -pw {{ krb5_kdc_admin_passwd }} {{ krb5_kdc_admin_user }}"
+  notify:
+    - restart kdc
+  when: "not kdc_admin_user.stdout"
+
+- name: Start KDC Server
+  service: name={{ item }} state=started enabled=yes
+  with_items:
+    - krb5kdc
+    - kadmin
+
+- name: Check Master Principal exist
+  shell: "kadmin.local -q 'list_principals' | grep -w '{{ krb5_kdc_master_princ }}'"
+  ignore_errors: True
+  register: kdc_master_princ
+  changed_when: false
+
+
+- name: Check Slave Principal exist
+  shell: "kadmin.local -q 'list_principals' | grep -w '{{ krb5_kdc_slave_princ }}'"
+  ignore_errors: True
+  register: kdc_slave_princ
+  changed_when: false
+
+- name: Create Master Host princ
+  shell: /usr/sbin/kadmin.local -q "addprinc -randkey -pw {{ krb5_kdc_master_passwd }} {{ krb5_kdc_master_princ }}"
+  when: "not kdc_master_princ.stdout"
+
+- name: Create Slave Host princ
+  command: /usr/sbin/kadmin.local -q "addprinc -randkey -pw {{ krb5_kdc_slave_princ_passwd }} {{ krb5_kdc_slave_princ }}"
+  when: "not kdc_slave_princ.stdout"
+
+- name: Check Master Host exit in Krb5.keytab
+  shell: klist -kte | grep -E "{{ item }}"
+  ignore_errors: True
+  register: Krb5_keytab_master
+  with_items: "{{ groups['krb5_server_master'] }}"
+  changed_when: false
+
+- name: Check Slave Host exit in Krb5.keytab
+  shell: klist -kte | grep -E "{{ item }}"
+  ignore_errors: True
+  register: Krb5_keytab_slave
+  with_items: "{{ groups['krb5_server_slave'] }}"
+  changed_when: false
+
+- name: Add Master Host to Krb5.keytab
+  shell: /usr/sbin/kadmin.local -q "ktadd host/{{ item }}"
+  ignore_errors: True
+  with_items: "{{ groups['krb5_server_master'] }}"
+  when: "not Krb5_keytab_master.results[0].stdout"
+
+- name: Add Slave Host to Krb5.keytab
+  shell: /usr/sbin/kadmin.local -q "ktadd host/{{ item }}"
+  ignore_errors: True
+  with_items: "{{ groups['krb5_server_slave'] }}"
+  when: "not Krb5_keytab_slave.results[0].stdout"
+

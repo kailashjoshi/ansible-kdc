@@ -1,0 +1,84 @@
+---
+- name: Install KRB5 server
+  yum: name={{ item }} state=present update_cache=yes
+  with_items:
+    - rng-tools
+    - krb5-libs
+    - krb5-server
+    - xinetd
+    - rsync
+
+- name: Init entropy
+  command: "rngd -r /dev/urandom"
+  changed_when: false
+  
+- name: disable iptables
+  service:
+    name: firewalld
+    enabled: no
+    state: stopped
+
+- name: start entropy
+  service: name=rngd state=started enabled=yes
+
+- name: Set kdc.conf
+  template: src=kdc.conf.j2 dest=/var/kerberos/krb5kdc/kdc.conf backup=yes
+  
+
+- name: Set kadm5.acl
+  template: src=kadm5.acl.j2 dest=/var/kerberos/krb5kdc/kadm5.acl backup=yes
+
+- name: Set kpropd.conf
+  template: src=kpropd.acl.j2 dest=/var/kerberos/krb5kdc/kpropd.acl backup=yes
+
+- stat:
+    path: /var/kerberos/krb5kdc/principal
+  register: db
+  changed_when: false
+
+- name: Create KDC database
+  command: /usr/sbin/kdb5_util create -s -P {{ krb5_kdc_master_passwd }} creates=/var/kerberos/krb5kdc/principal
+  when: db.stat.islnk is not defined
+
+- name: Start Kprop
+  service: name=kprop state=started enabled=yes
+
+- stat:
+    path: /var/kerberos/krb5kdc/.k5.{{ ansible_domain}}
+  register: k5_file
+
+- name: Copy .k5
+  synchronize:
+    src: /var/kerberos/krb5kdc/.k5.{{ ansible_domain}}
+    dest: /var/kerberos/krb5kdc/
+  when: k5_file.stat.exists == false
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_master'] }}"
+
+- name: Check Master Host exit in Krb5.keytab
+  shell: klist -kte | grep -E "{{ item }}"
+  ignore_errors: True
+  register: Krb5_keytab_master
+  with_items: "{{ groups['krb5_server_master'] }}"
+  changed_when: false
+
+- name: Check Slave Host exit in Krb5.keytab
+  shell: klist -kte | grep -E "{{ item }}"
+  ignore_errors: True
+  register: Krb5_keytab_slave
+  with_items: "{{ groups['krb5_server_slave'] }}"
+  changed_when: false
+
+- name: Copy krb5 keytab
+  synchronize:
+    src: /etc/krb5.keytab
+    dest: /etc/
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_master'] }}"
+
+
+
+
+
+
+

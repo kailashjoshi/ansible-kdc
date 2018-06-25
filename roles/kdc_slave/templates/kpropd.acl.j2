@@ -1,0 +1,2 @@
+host/{{ hostvars[groups['krb5_server_master'][0]]['inventory_hostname'] }}@{{ default_realm|upper }}
+host/{{ hostvars[groups['krb5_server_slave'][0]]['inventory_hostname'] }}@{{ default_realm|upper }}

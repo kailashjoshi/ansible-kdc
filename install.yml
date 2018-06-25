@@ -1,0 +1,25 @@
+---
+- name: Installation of MIT KDC Master
+  hosts: krb5_server_master
+  become: true
+  roles:
+    - kdc_master
+  tags:
+    - master
+
+- name: Installation of MIT KDC Slave
+  hosts: krb5_server_slave
+  become: true
+  roles:
+    - kdc_slave
+  tags:
+    - slave
+
+- name: Propogate KDC Master-Slave Databases
+  hosts: krb5_server
+  become: true
+  gather_facts: no
+  roles:
+    - kdc
+  tags:
+    - kdc

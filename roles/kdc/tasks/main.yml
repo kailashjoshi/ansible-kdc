@@ -1,0 +1,37 @@
+---
+- name: Propogate KDC Slave Step 1
+  command: /usr/sbin/kdb5_util dump /var/kerberos/krb5kdc/slave_datatrans 
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_slave'] }}"
+  changed_when: false
+
+- name: Propogate KDC Slave Step 2
+  command: kprop -f /var/kerberos/krb5kdc/slave_datatrans {{ item }}
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_slave'] }}"
+  changed_when: false
+
+- name: Start Slave kdc
+  service: name=krb5kdc state=started enabled=yes
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_slave'] }}"
+
+- name: Propogate KDC Master Step 1
+  command: /usr/sbin/kdb5_util dump /var/kerberos/krb5kdc/slave_datatrans
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_master'] }}"
+  changed_when: false
+
+- name: Propogate KDC Master Step 2
+  command: kprop {{ groups['krb5_server_slave'][0] }}
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_master'] }}"
+  changed_when: false
+
+- name: Set KDC Cron Tab
+  cron:
+    name: "Sync Master KDC with Slave every 5 minutes"
+    minute: "*/5"
+    job: "/usr/sbin/kdb5_util dump /var/kerberos/krb5kdc/slave_datatrans > /dev/null; kprop {{ groups['krb5_server_slave'][0] }} > /dev/null"
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups['krb5_server_master'] }}"
